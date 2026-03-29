@@ -1,0 +1,7 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.agent/
+.DS_Store
+accounts_template.csv
