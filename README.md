@@ -1,12 +1,25 @@
-# AI Chusen - Hệ thống Tự động hóa Phone Sync (Hướng dẫn)
+# 🎮 Pokemon Center Auto Chusen (Chốt đơn tự động)
 
-Hệ thống này giúp bạn điều khiển nhiều điện thoại Android để tự động đăng nhập vào Pokemon Center Online, lấy mã OTP từ Email trung tâm (Forwarding) và thực hiện các bước đăng ký/chăm sóc tài khoản.
+Hệ thống tự động hóa đăng ký xổ số (Chusen) trên Pokemon Center Online bằng `uiautomator2` và `Streamlit`.
+
+## 🚀 Cách chạy nhanh
+Thay vì gợ lệnh dài, bây giờ bạn chỉ cần chạy:
+```bash
+./run.sh
+```
+
+## ✨ Tính năng chính
+- **Tự động hóa 100%**: Từ Login -> Vượt OTP -> Chọn Item -> Chốt đơn.
+- **Quản lý đa thiết bị**: Dashboard trực quan theo dõi logs từng máy theo thời gian thực.
+- **Thông minh & An toàn**: Bỏ qua màn hình chào mừng, giữ session đăng nhập, tránh Anti-bot.
+- **Bộ lọc OTP mạnh mẽ**: Tự động quét và bắt mã từ Gmail master, match chính xác từng tài khoản.
 
 ---
+*Tác phẩm được tối ưu bởi Antigravity AI.*
 
 ### 1. Chuẩn bị (Prerequisites)
 - **Điện thoại:** Android thật. Cần bật **Tùy chọn nhà phát triển** -> **Gỡ lỗi USB (USB Debugging)**.
-- **Máy tính:** Cài đặt ADB (Android Debug Bridge).
+- **Máy tính:** Cài đặt ADB (Android Bridge).
 - **Python:** Phiên bản 3.9 trở lên.
 
 ### 2. Cài đặt (Installation)
