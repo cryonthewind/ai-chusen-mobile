@@ -22,10 +22,15 @@ class Config:
     
     # 4. Timeouts & Delays (Seconds)
     DEFAULT_TIMEOUT = 12
-    WAIT_FOR_ELEMENT = 15
+    WAIT_FOR_ELEMENT = 20
     OTP_FETCH_TIMEOUT = 120
-    WAIT_BETWEEN_ACCOUNTS = 10
+    WAIT_BETWEEN_ACCOUNTS = 15
     
-    # 5. Business logic flags
+    # 5. Retry & Backoff (Phase 4)
+    MAX_RETRIES = 3
+    RETRY_DELAY_BASE = 2  # sleep(base ** retry_count)
+    
+    # 6. Business logic flags
     INCOGNITO_DEFAULT = True
     AUTO_AGREE_POPUP = True
+    AIRPLANE_MODE_EVERY = 10 # Tự động đổi IP sau mỗi 10 acc

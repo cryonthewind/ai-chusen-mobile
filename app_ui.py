@@ -1,28 +1,97 @@
 import streamlit as st
 import pandas as pd
 import time
-import os
-import random
 import subprocess
 import threading
-import logging
+import os
+import random
+import streamlit.components.v1 as components
 from src.core.robot import AdbRobot
 from src.workflow.lottery_workflow import run_lottery_workflow
+from src.utils.config import Config
 
-# Cấu hình giao diện Streamlit Premium
-st.set_page_config(page_title="AI CHUSEN PRO | Control Center", layout="wide", page_icon="🤖")
+# --- CONFIG ---
+st.set_page_config(page_title="AI CHUSEN | MATRIX OPS", layout="wide", page_icon="🧬", initial_sidebar_state="collapsed")
 
-# Custom CSS
-st.markdown("""
+# --- FULL MATRIX CYBERPUNK CSS ---
+MATRIX_STYLE = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #e2e8f0; }
-    .main-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border-radius: 16px; padding: 20px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 20px; }
-    .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
-    .log-box { background: #000; color: #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 11px; padding: 10px; border-radius: 8px; height: 250px; overflow-y: auto; border: 1px solid #333; line-height: 1.4; }
-</style>
-""", unsafe_allow_html=True)
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+    
+    :root {
+        --matrix-green: #00ff41;
+        --matrix-faded: rgba(0, 255, 65, 0.15);
+        --matrix-bg: #010801;
+        --card-dark: rgba(13, 13, 13, 0.98);
+    }
 
+    body, html, .stApp { 
+        background-color: var(--matrix-bg) !important; 
+        color: var(--matrix-green) !important;
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+    
+    header { visibility: hidden; }
+    .block-container { padding: 1.5rem 3rem !important; }
+
+    /* Matrix Glow Panel */
+    .matrix-panel {
+        background: var(--card-dark);
+        border: 1.5px solid var(--matrix-green);
+        border-radius: 12px;
+        padding: 1.2rem;
+        box-shadow: 0 0 15px var(--matrix-faded);
+    }
+    .active-glow { box-shadow: 0 0 35px var(--matrix-green); border-color: #fff; }
+
+    .kpi-label { font-size: 0.6rem; color: #fff; text-transform: uppercase; letter-spacing: 0.2em; opacity: 0.6; margin-bottom: 5px; }
+    .kpi-value { font-size: 2.22rem; font-weight: 800; color: var(--matrix-green); text-shadow: 0 0 10px var(--matrix-green); line-height: 1; }
+
+    /* Log Viewport */
+    .log-viewport {
+        background: #000;
+        border: 1px solid rgba(0, 255, 65, 0.3);
+        border-radius: 8px;
+        padding: 12px;
+        height: 180px;
+        overflow-y: auto;
+        color: #00ff41;
+        font-size: 11px;
+        margin-bottom: 12px;
+    }
+    .log-line { border-bottom: 1px solid rgba(0,255,65,0.05); padding: 4px 0; }
+
+    /* Matrix Interactive Buttons */
+    .stButton>button {
+        background: transparent !important;
+        color: var(--matrix-green) !important;
+        border: 1.5px solid var(--matrix-green) !important;
+        border-radius: 8px !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        font-size: 10px !important;
+        transition: all 0.2s !important;
+    }
+    .stButton>button:hover {
+        background: var(--matrix-green) !important;
+        color: #000 !important;
+        box-shadow: 0 0 20px var(--matrix-green) !important;
+    }
+
+    /* Table Specialist Mode */
+    .m-table-wrap { background: #000; border: 1.5px solid var(--matrix-green); border-radius: 12px; overflow: hidden; }
+    .m-table { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+    .m-table th { background: #002200; color: #fff; padding: 15px; text-align: left; border-bottom: 2px solid var(--matrix-green); }
+    .m-table td { padding: 12px 15px; border-bottom: 1px solid rgba(0, 255, 65, 0.1); color: #00ff41; }
+    
+    .stDivider { border-color: rgba(0, 255, 65, 0.2) !important; }
+</style>
+"""
+
+st.markdown(MATRIX_STYLE, unsafe_allow_html=True)
+
+# --- GLOBAL STATE ---
 class GlobalRobotStatus:
     _instance = None
     def __new__(cls):
@@ -31,154 +100,152 @@ class GlobalRobotStatus:
             cls._instance.worker_status = {}
             cls._instance.device_logs = {}
             cls._instance.stop_flags = {}
+            cls._instance.scrcpy_processes = {} # Dùng để quản lý các cửa sổ VIEW
         return cls._instance
-
     def add_log(self, serial, message):
         if serial not in self.device_logs: self.device_logs[serial] = []
-        timestamp = time.strftime("%H:%M:%S")
-        self.device_logs[serial].append(f"[{timestamp}] {message}")
-        if len(self.device_logs[serial]) > 100: self.device_logs[serial].pop(0)
+        ts = time.strftime("%H:%M:%S")
+        self.device_logs[serial].append(f'<div class="log-line"><span style="opacity:0.4">[{ts}]</span> {message}</div>')
+        if len(self.device_logs[serial]) > 30: self.device_logs[serial].pop(0)
 
-if 'robot_state' not in st.session_state:
-    st.session_state.robot_state = GlobalRobotStatus()
+if 'robot_state' not in st.session_state: st.session_state.robot_state = GlobalRobotStatus()
 robot_state = st.session_state.robot_state
 
-def list_adb_devices():
+def get_devices():
     try:
-        output = subprocess.check_output("adb devices", shell=True).decode()
-        lines = output.splitlines()
-        return [line.split()[0] for line in lines[1:] if "device" in line and not "devices" in line]
-    except:
-        return []
+        output = subprocess.check_output("adb devices", shell=True).decode().splitlines()
+        return [l.split()[0] for l in output[1:] if "device" in l and not "devices" in l]
+    except: return []
 
-def worker_thread(serial, accounts_file):
-    """Xử lý song song cho 1 máy."""
-    robot_state.worker_status[serial] = "⚡ PROCESSING"
-    robot_state.stop_flags[serial] = False
-    robot_state.add_log(serial, "Worker Engine Khởi động...")
-    
-    acc_count = 0 
+def worker_thread(serial, file_path):
+    robot_state.worker_status[serial] = "RUNNING"; robot_state.stop_flags[serial] = False
     try:
-        robot = AdbRobot(serial) 
-        
+        robot = AdbRobot(serial)
         while not robot_state.stop_flags.get(serial, False):
-            # 1. Quản lý Đọc/Ghi CSV an toàn
-            df = pd.read_csv(accounts_file)
-            df['Device_Serial'] = df['Device_Serial'].fillna('')
-            target_mask = ((df['Device_Serial'] == serial) | (df['Device_Serial'] == '')) & (df['Status'] == 'ready')
+            df = pd.read_csv(file_path)
+            mask = ((df['Device_Serial'] == serial) | (df['Device_Serial'].isna()) | (df['Device_Serial'] == '')) & (df['Status'] == 'ready')
+            if not df[mask].any().any():
+                robot_state.add_log(serial, "✅ QUEUE_CLEARED"); robot_state.worker_status[serial] = "IDLE"; break
+            idx = df[mask].index[0]; acc = df.iloc[idx].to_dict()
+            df.at[idx, 'Status'] = 'Running'; df.at[idx, 'Device_Serial'] = serial; df.to_csv(file_path, index=False)
             
-            if not df[target_mask].any().any():
-                robot_state.add_log(serial, "Hết tài khoản 'ready'. Kết thúc.")
-                robot_state.worker_status[serial] = "🏁 FINISHED"
-                break
-                
-            idx = df[target_mask].index[0]
-            row = df.iloc[idx].to_dict()
-            acc_email = row['Account_Email']
+            # Lambda check stop flag
+            def stop_check(): return robot_state.stop_flags.get(serial, False)
+            res = run_lottery_workflow(serial, acc, log_callback=robot_state.add_log, stop_check=stop_check)
             
-            # Khóa account
-            df.at[idx, 'Device_Serial'] = serial
-            df.at[idx, 'Status'] = 'Running'
-            df.to_csv(accounts_file, index=False)
-            
-            robot_state.add_log(serial, f"🚀 Đang xử lý: {acc_email}")
-            
-            # --- CHẠY LOTTERY WORKFLOW (ARCHITECTURE V3) ---
-            res = run_lottery_workflow(serial, row, log_callback=robot_state.add_log)
-            
-            # Cập nhật kết quả cuối cùng
-            df = pd.read_csv(accounts_file)
-            df.at[idx, 'Status'] = 'Completed' if res['status'] == "SUCCESS" or res['status'] == "SKIP" else 'Error'
-            df.to_csv(accounts_file, index=False)
-            
-            # Đếm số lượng để reset IP
-            acc_count += 1
-            if acc_count >= 10:
-                robot_state.add_log(serial, "✈️ Đã làm xong 10 accounts, đang tự động đổi IP...")
-                robot.toggle_airplane_mode()
-                acc_count = 0
-            
-            # Nghỉ ngơi trùm chống Bot
-            wait = random.randint(15, 30)
-            robot_state.add_log(serial, f"Bot Cooldown: {wait}s...")
-            time.sleep(wait)
-            
+            # Finish update
+            df = pd.read_csv(file_path)
+            new_status = 'ready' if res.get('status') == 'STOPPED' else ('Completed' if res.get('status') in ["SUCCESS", "SKIP"] else 'Error')
+            df.at[idx, 'Status'] = new_status
+            df.to_csv(file_path, index=False)
+
+            if res.get('status') == 'STOPPED': break
+
+            # Interruptible Sleep (15-30s)
+            wait_time = random.randint(15, 30)
+            for _ in range(wait_time):
+                if stop_check(): break
+                time.sleep(1)
     except Exception as e:
-        robot_state.add_log(serial, f"💥 Lỗi Worker: {e}")
-        robot_state.worker_status[serial] = "❌ ERROR"
+        robot_state.add_log(serial, f"❌ CRITICAL_ERROR: {e}"); robot_state.worker_status[serial] = "CRASHED"
     finally:
-        # Quan trọng: Reset trạng thái để có thể bấm nút Chạy lại
-        if robot_state.stop_flags.get(serial):
-            robot_state.add_log(serial, "🛑 Đã Dừng worker theo yêu cầu.")
-            robot_state.worker_status[serial] = "IDLE (Stopped)"
-        robot_state.stop_flags[serial] = False # Clear flag cho lần sau
+        robot_state.stop_flags[serial] = False
+        robot_state.worker_status[serial] = "IDLE"
 
-# UI HEADER
-st.title("🛡️ AI CHUSEN CONTROL CENTER | V3 ARCHITECTURE")
+# --- HEADER & KPI RENDERING ---
+st.markdown('<div style="text-align:center; padding-bottom:1.5rem"><span style="letter-spacing:1.2em; border:1.5px solid var(--matrix-green); padding:8px 25px; font-weight:700; box-shadow: 0 0 15px var(--matrix-green); color:var(--matrix-green)">MATRIX MONITORING SYSTEM</span></div>', unsafe_allow_html=True)
+
 accounts_file = "accounts_template.csv"
-
 if os.path.exists(accounts_file):
     df_all = pd.read_csv(accounts_file)
+    active = sum(1 for s in robot_state.worker_status.values() if "RUNNING" in str(s))
     
-    # METRICS
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Tổng tài khoản", len(df_all))
-    m2.metric("Sẵn sàng quét", len(df_all[df_all['Status'] == 'ready']))
-    m3.metric("Hoàn tất ✅", len(df_all[df_all['Status'] == 'Completed']))
-    m4.metric("Lỗi cần check ❌", len(df_all[df_all['Status'].isin(['Error', 'Redirect'])]))
+    # KPIs Row
+    ks = st.columns(5)
+    with ks[0]: st.markdown(f'<div class="matrix-panel"><div class="kpi-label">Queued</div><div class="kpi-value">{len(df_all[df_all["Status"]=="ready"])}</div></div>', unsafe_allow_html=True)
+    with ks[1]: st.markdown(f'<div class="matrix-panel"><div class="kpi-label">Active</div><div class="kpi-value">{active}</div></div>', unsafe_allow_html=True)
+    with ks[2]: st.markdown(f'<div class="matrix-panel"><div class="kpi-label">Success</div><div class="kpi-value">{len(df_all[df_all["Status"]=="Completed"])}</div></div>', unsafe_allow_html=True)
+    with ks[3]: st.markdown(f'<div class="matrix-panel"><div class="kpi-label">Failed</div><div class="kpi-value">{len(df_all[df_all["Status"].isin(["Error", "Redirect"])])}</div></div>', unsafe_allow_html=True)
+    with ks[4]: st.markdown(f'<div class="matrix-panel"><div class="kpi-label">Total</div><div class="kpi-value">{len(df_all)}</div></div>', unsafe_allow_html=True)
 
-    st.sidebar.title("🎮 Dashboard Settings")
-    if st.sidebar.button("🔍 SCAN DEVICES"):
-        st.session_state.devices_list = list_adb_devices()
-        st.rerun()
-
-    devices = st.session_state.get('devices_list', [])
-
-    if devices:
-        st.subheader(f"📱 Hoạt động (Online: {len(devices)})")
-        cols = st.columns(3)
-        for i, serial in enumerate(devices):
-            with cols[i % 3]:
-                status = robot_state.worker_status.get(serial, "IDLE")
-                logs = robot_state.device_logs.get(serial, ["Đang đợi lệnh quét..."])
-                
-                st.markdown(f"""<div class="main-card">
-                    <div style="display:flex; justify-content:space-between; align-items:center">
-                        <h4 style="margin:0">Device: {serial}</h4>
-                        <span class="status-badge" style="background:{'#10b981' if 'PROCESSING' in status else '#64748b'}">{status}</span>
-                    </div>
-                    <hr style="margin:10px 0; border:0; border-top:1px solid #333">
-                    <div class="log-box">{"<br>".join(logs[::-1])}</div>
-                </div>""", unsafe_allow_html=True)
-                
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    is_running = "PROCESSING" in robot_state.worker_status.get(serial, "")
-                    if st.button(f"▶️ Chạy", key=f"run_{serial}", disabled=is_running):
-                        threading.Thread(target=worker_thread, args=(serial, accounts_file), daemon=True).start()
-                with c2:
-                    if st.button(f"🛑 Dừng", key=f"stop_{serial}"):
-                        robot_state.stop_flags[serial] = True
-                with c3:
-                    if st.button(f"📺 Xem", key=f"view_{serial}"):
-                        subprocess.Popen(["scrcpy", "-s", serial])
-                with c4:
-                    if st.button(f"✈️ IP", key=f"ip_{serial}"):
-                        # Reset IP thủ công ngay lập tức
-                        threading.Thread(target=lambda: AdbRobot(serial).toggle_airplane_mode(), daemon=True).start()
-                        robot_state.add_log(serial, "✈️ Yêu cầu Reset IP thủ công...")
-    
     st.divider()
-    with st.expander("📊 Account Database Management"):
-        st.dataframe(df_all, use_container_width=True)
-        colL1, colL2, colL3 = st.columns(3)
-        if colL1.button("🔄 Reset All to Ready"):
-            df_all['Status'] = 'ready'; df_all['Device_Serial'] = ''; df_all.to_csv(accounts_file, index=False); st.rerun()
-        if colL2.button("🔄 Retry Errors"):
-            df_all.loc[df_all['Status'].isin(['Error', 'Running']), 'Status'] = 'ready'; df_all.to_csv(accounts_file, index=False); st.rerun()
 
+    # CORE GRID
+    l_col, r_col = st.columns([0.76, 0.24])
+    devs = get_devices()
+    
+    with l_col:
+        st.markdown('<p style="font-weight:700; opacity:0.8"># NODE_AGENTS_ONLINE</p>', unsafe_allow_html=True)
+        gc = st.columns(2)
+        for i, sn in enumerate(devs):
+            with gc[i % 2]:
+                stt = robot_state.worker_status.get(sn, "IDLE")
+                logs = robot_state.device_logs.get(sn, ["Establishing matrix link..."])
+                glow = "active-glow" if "RUNNING" in str(stt) else ""
+                
+                st.markdown(f"""
+                <div class="matrix-panel {glow}" style="margin-bottom:1rem">
+                    <div style="font-weight:700; margin-bottom:10px">[ {sn} ] <span style="float:right">{stt}</span></div>
+                    <div class="log-viewport">{''.join(logs[::-1])}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Device Action Buttons (5 Columns Matrix Layout)
+                btn_cols = st.columns(5)
+                if btn_cols[0].button("▶ RUN", key=f"r_{sn}", use_container_width=True): 
+                    threading.Thread(target=worker_thread, args=(sn, accounts_file), daemon=True).start()
+                if btn_cols[1].button("🛑 OFF", key=f"s_{sn}", use_container_width=True): 
+                    robot_state.stop_flags[sn] = True
+                if btn_cols[2].button("📺 VIEW", key=f"v_{sn}", use_container_width=True): 
+                    # Mở và lưu tiến trình scrcpy
+                    p = subprocess.Popen(["scrcpy", "-s", sn])
+                    robot_state.scrcpy_processes[sn] = p
+                if btn_cols[3].button("❌ CLS", key=f"c_{sn}", use_container_width=True): 
+                    # Đóng monitor của riêng SN này
+                    p = robot_state.scrcpy_processes.get(sn)
+                    if p:
+                        p.terminate()
+                        del robot_state.scrcpy_processes[sn]
+                if btn_cols[4].button("✈ IP", key=f"i_{sn}", use_container_width=True): 
+                    threading.Thread(target=lambda: AdbRobot(sn).toggle_airplane_mode(), daemon=True).start()
+
+    with r_col:
+        st.markdown('<p style="font-weight:700; opacity:0.8"># GLOBAL_OPS (SYNC)</p>', unsafe_allow_html=True)
+        
+        # 🎯 THÊM NÚT SCAN DEVICES (NODE DETECTION)
+        if st.button("🔭 SCAN FOR NEW NODES", use_container_width=True):
+            st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="matrix-panel" style="font-size:0.7rem">ENCRYPTION: SHIELDED<br>NODE_DETECTION: AUTO<br>IP_RELAY: OPERATIONAL</div>', unsafe_allow_html=True)
+
+    # --- TRANSMISSION FEED (QUEUE CONTROLS) ---
+    st.markdown('<p style="font-weight:700; margin-top:2.5rem; opacity:0.8"># TRANSMISSION_QUEUE_FEED_BUFFER</p>', unsafe_allow_html=True)
+    
+    ctrl_l, ctrl_r = st.columns([0.5, 0.5])
+    with ctrl_l:
+        if st.button("♻️ RETRY FAILED ACCOUNTS (ERROR/REDIRECT)", use_container_width=True):
+            df_all.loc[df_all['Status'].isin(['Error', 'Redirect']), 'Status'] = 'ready'
+            df_all.to_csv(accounts_file, index=False); st.rerun()
+    with ctrl_r:
+        if st.button("⚠️ RESET ALL HUB (RELOAD_FROM_ZERO)", use_container_width=True):
+            df_all['Status']='ready'; df_all['Device_Serial']=''; df_all.to_csv(accounts_file, index=False); st.rerun()
+
+    rows = ""
+    for _, row in df_all.tail(60).iloc[::-1].iterrows():
+        rows += f"<tr><td>{row['Account_Email']}</td><td style='font-weight:bold'>{row['Status']}</td><td>{row.get('Device_Serial','-')}</td></tr>"
+    
+    html_out = f"""
+    {MATRIX_STYLE}
+    <div class="m-table-wrap">
+        <table class="m-table">
+            <thead><tr><th>SOURCE_EMAIL</th><th>STATUS</th><th>NODE_ID</th></tr></thead>
+            <tbody>{rows}</tbody>
+        </table>
+    </div>
+    """
+    components.html(html_out, height=450, scrolling=True)
+
+    time.sleep(5); st.rerun()
 else:
-    st.error("Missing accounts_template.csv")
-
-time.sleep(3)
-st.rerun()
+    st.error("DATABASE_UNREACHABLE")

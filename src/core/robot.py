@@ -21,16 +21,20 @@ class AdbRobot:
             logger.error(f"[{serial}] Lỗi kết nối thiết bị qua uiautomator2: {e}")
             raise e
 
-    def wait_for_element(self, text=None, rid=None, timeout=None):
-        """Đợi cho đến khi phần tử xuất hiện (Thay thế cho sleep)."""
+    def wait_for_element(self, text=None, rid=None, timeout=None, text_contains=None):
+        """Đợi phần tử xuất hiện (Hỗ trợ Text chính xác, Text chứa, Resource ID)."""
         timeout = timeout or Config.WAIT_FOR_ELEMENT
         start = time.time()
         while time.time() - start < timeout:
-            if text and self.d(textContains=text).exists: return True
+            if text and self.d(text=text).exists: return True
+            if text_contains and self.d(textContains=text_contains).exists: return True
             if rid and self.d(resourceId=rid).exists: return True
-            # Tự động dọn dẹp các popup cản trở
+            
+            # Tự động dọn dẹp các popup (Hỗ trợ tiếng Nhật/Việt)
             if Config.AUTO_AGREE_POPUP:
-                self.d(textContains="同意").click_exists(timeout=0.1)
+                for p_txt in ["同意", "OK", "Chấp nhận", "Accept"]:
+                    if self.d(textContains=p_txt).exists:
+                        self.d(textContains=p_txt).click_exists(timeout=0.1)
             time.sleep(0.5)
         return False
 

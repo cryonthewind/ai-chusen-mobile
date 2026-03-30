@@ -90,6 +90,16 @@ class PokeCenterController:
         
         return {"status": "FAIL", "error": "LOGIN_TIMEOUT", "message": "Hết thời gian chờ Login."}
 
+    def wait_for_otp_screen(self, timeout=15):
+        """Chờ cho đến khi màn hình OTP xuất hiện."""
+        logger.info(f"[{self.serial}] Đang chờ màn hình nhập OTP (tối đa {timeout}s)...")
+        # Chờ xuất hiện chữ "パスコード" (Passcode) hoặc "確認コード" (Confirm code)
+        for keyword in ["パスコード", "確認コード", "コードを入力"]:
+            if self.robot.wait_for_element(text_contains=keyword, timeout=timeout):
+                logger.info(f"[{self.serial}] Đã thấy màn hình OTP.")
+                return True
+        return False
+
     def verify_otp(self, code):
         """Xác thực mã OTP."""
         logger.info(f"[{self.serial}] Đang điền OTP: {code}")
