@@ -2,95 +2,115 @@ import csv
 import time
 import os
 import logging
+import threading
+import subprocess
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
-from src.core.robot import AdbRobot
-from src.workflow.lottery_workflow import run_lottery_workflow as run_workflow_for_account
-import subprocess
+from src.workflow.lottery_workflow import run_lottery_workflow
 
-# Cấu hình biến môi trường
+# 1. Environment & Global Configuration
 load_dotenv()
-
-# Cấu hình logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] [%(threadName)s] %(message)s')
 logger = logging.getLogger("MainScheduler")
 
+# Global lock for thread-safe account popping
+queue_lock = threading.Lock()
+
 def list_devices():
-    """Lấy danh sách các serial ID của thiết bị Android đang kết nối."""
+    """Retrieves list of connected Android serial IDs via ADB."""
     try:
         output = subprocess.check_output("adb devices", shell=True).decode()
         lines = output.splitlines()
-        serials = []
-        for line in lines[1:]:
-            if "device" in line and not "devices" in line:
-                serials.append(line.split()[0])
+        serials = [line.split()[0] for line in lines[1:] if "device" in line and not "devices" in line]
         return serials
-    except:
+    except Exception as e:
+        logger.error(f"ADB Error: {e}")
         return []
 
-def worker_task(serial, account_queue):
-    """Function cho 1 Thread quản lý 1 Device."""
-    while account_queue:
+def worker_task(serial, account_deque):
+    """Worker thread logic: One device per thread."""
+    logger.info(f"💎 Initializing worker for Node [{serial}]")
+    
+    while True:
+        # Step A: Thread-safe pop from deque
+        account = None
+        with queue_lock:
+            if account_deque:
+                account = account_deque.popleft()
+        
+        if not account:
+            logger.info(f"🏁 Node [{serial}]: Queue cleared. Shutting down worker.")
+            break
+
+        target_email = account.get('Account_Email', 'Unknown')
+        
         try:
-            # Lấy account từ queue (Pop đầu tiên)
-            account = account_queue.pop(0)
-            target_email = account['Account_Email']
+            logger.info(f"⚡ Node [{serial}] -> Processing: {target_email}")
             
-            logger.info(f"💎 Device [{serial}] đang bắt đầu xử lý: {target_email}")
+            # Step B: Execute the core business workflow
+            # We pass a simple log callback to show progress in console
+            def _log_cb(sn, msg): logger.info(f"[{sn}] {msg}")
             
-            # Thực thi workflow
-            res = run_workflow_for_account(serial, account)
+            res = run_lottery_workflow(serial, account, log_callback=_log_cb)
             
-            # Kết quả: Bạn có thể cập nhật CSV ở đây nếu cần tập trung
+            # Step C: Result handling
             if res['status'] == "SUCCESS":
-                logger.info(f"✅ Device [{serial}] hoàn tất THÀNH CÔNG: {target_email}")
+                logger.info(f"✅ Node [{serial}] -> SUCCESS: {target_email}")
+            elif res['status'] == "SKIP":
+                logger.info(f"✅ Node [{serial}] -> SKIPPED: {target_email}")
             else:
-                logger.error(f"❌ Device [{serial}] THẤT BẠI cho {target_email}: {res['message']}")
+                logger.error(f"❌ Node [{serial}] -> FAILED: {target_email} - Error: {res.get('message')}")
             
-            # Nghỉ ngắn giữa các acc để tránh bot detection
-            time.sleep(10)
-        except IndexError:
-            break
+            # Anti-detection delay between accounts
+            time.sleep(5) 
+            
         except Exception as e:
-            logger.error(f"💥 Lỗi nghiêm trọng tại worker [{serial}]: {e}")
-            break
+            logger.error(f"💥 Node [{serial}] -> CRITICAL ERROR during {target_email}: {e}")
+            # Potentially put account back or mark as error
+            continue
 
 def main():
-    logger.info("🚀 Đang khởi động Pokemon Center Multi-Device Scheduler...")
+    logger.info("🚀 Starting Pokemon Center Multi-Device Scheduler (Refactored)...")
     
-    # 1. Quét thiết bị
+    # 1. Device Discovery
     serials = list_devices()
     if not serials: 
-        logger.error("Không tìm thấy thiết bị Android nào đang kết nối ADB.")
+        logger.error("No ADB devices detected. Please connect devices via USB/Network.")
         return
 
-    logger.info(f"📱 Tìm thấy {len(serials)} thiết bị: {serials}")
+    logger.info(f"📱 Nodes Online ({len(serials)}): {serials}")
 
-    # 2. Load danh sách tài khoản hợp lệ (Status = ready)
-    if not os.path.exists('accounts_template.csv'):
-        logger.error("Không tìm thấy file accounts_template.csv")
+    # 2. Account Loading (Status: ready)
+    csv_path = 'accounts_template.csv'
+    if not os.path.exists(csv_path):
+        logger.error(f"Target file {csv_path} not found.")
         return
 
     accounts_to_run = []
-    with open('accounts_template.csv', mode='r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row.get('Status') == 'ready':
-                accounts_to_run.append(row)
-
-    if not accounts_to_run:
-        logger.warning("Không có tài khoản nào có trạng thái 'ready' để chạy.")
+    try:
+        with open(csv_path, mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            accounts_to_run = [row for row in reader if row.get('Status') == 'ready']
+    except Exception as e:
+        logger.error(f"CSV Read Error: {e}")
         return
 
-    logger.info(f"📦 Đang xếp hàng {len(accounts_to_run)} tài khoản vào Queue.")
+    if not accounts_to_run:
+        logger.warning("No 'ready' accounts found in queue.")
+        return
 
-    # 3. Khởi chạy luồng song song (Mỗi device dùng 1 Thread)
-    # Dùng ThreadPoolExecutor với max_workers = số lượng device
-    with ThreadPoolExecutor(max_workers=len(serials), thread_name_prefix="Worker") as executor:
+    # Convert to thread-safe deque
+    account_queue = deque(accounts_to_run)
+    logger.info(f"📦 Queued {len(account_queue)} accounts for processing.")
+
+    # 3. Parallel Execution Management
+    # One thread per device to isolate execution logic
+    with ThreadPoolExecutor(max_workers=len(serials), thread_name_prefix="Node") as executor:
         for serial in serials:
-            executor.submit(worker_task, serial, accounts_to_run)
+            executor.submit(worker_task, serial, account_queue)
 
-    logger.info("🏁 TẤT CẢ CÔNG VIỆC ĐÃ HOÀN TẤT.")
+    logger.info("🏁 MISSION COMPLETE: All nodes returned successfully.")
 
 if __name__ == "__main__":
     main()

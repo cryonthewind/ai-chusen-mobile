@@ -101,6 +101,7 @@ class GlobalRobotStatus:
             cls._instance.device_logs = {}
             cls._instance.stop_flags = {}
             cls._instance.scrcpy_processes = {} # Dùng để quản lý các cửa sổ VIEW
+            cls._instance.account_counts = {}   # Theo dõi 10 lần thì reset IP
         return cls._instance
     def add_log(self, serial, message):
         if serial not in self.device_logs: self.device_logs[serial] = []
@@ -140,6 +141,17 @@ def worker_thread(serial, file_path):
             df.to_csv(file_path, index=False)
 
             if res.get('status') == 'STOPPED': break
+
+            # --- AUTO RESET IP LOGIC (Sau 10 accounts) ---
+            if res.get('status') in ["SUCCESS", "SKIP"]:
+                current_count = robot_state.account_counts.get(serial, 0) + 1
+                robot_state.account_counts[serial] = current_count
+                robot_state.add_log(serial, f"📊 Progress: {current_count}/10 accounts.")
+                
+                if current_count >= 10:
+                    robot_state.add_log(serial, "🔄 Auto Trigger: Resetting IP after 10 accounts...")
+                    robot.toggle_airplane_mode(log_callback=robot_state.add_log)
+                    robot_state.account_counts[serial] = 0 # Reset counter
 
             # Interruptible Sleep (15-30s)
             wait_time = random.randint(15, 30)
@@ -207,7 +219,8 @@ if os.path.exists(accounts_file):
                         p.terminate()
                         del robot_state.scrcpy_processes[sn]
                 if btn_cols[4].button("✈ IP", key=f"i_{sn}", use_container_width=True): 
-                    threading.Thread(target=lambda: AdbRobot(sn).toggle_airplane_mode(), daemon=True).start()
+                    threading.Thread(target=lambda: AdbRobot(sn).toggle_airplane_mode(log_callback=robot_state.add_log), daemon=True).start()
+
 
     with r_col:
         st.markdown('<p style="font-weight:700; opacity:0.8"># GLOBAL_OPS (SYNC)</p>', unsafe_allow_html=True)

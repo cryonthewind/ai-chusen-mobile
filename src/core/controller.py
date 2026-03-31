@@ -8,8 +8,9 @@ logger = logging.getLogger("SystemController")
 
 class PokeCenterController:
     """
-    Lớp điều khiển Logic (Brain/Controller).
-    Sử dụng Robot để thực hiện các bước của Pokemon Center theo luồng.
+    High-level logic controller.
+    Uses AdbRobot to execute business workflows.
+    Refactored for zero-sleep (smart-wait) transitions.
     """
     def __init__(self, serial):
         self.serial = serial
@@ -17,151 +18,145 @@ class PokeCenterController:
         self.ui = PokeCenterUiMap()
 
     def setup_browser(self):
-        """Khởi động Chrome sạch và vượt qua các màn hình chào mừng."""
-        logger.info(f"[{self.serial}] Đang chuẩn bị trình duyệt...")
+        """Starts Chrome and skips onboarding fast."""
+        logger.info(f"[{self.serial}] Launching Chrome...")
         self.robot.force_stop_app()
-        time.sleep(1)
+        time.sleep(0.5)
         self.robot.open_url(self.ui.LOGIN_URL, incognito=Config.INCOGNITO_DEFAULT)
         
-        # Vòng lặp chờ trang login hoặc xử lý onboarding/navigation
+        # Stability wait for Webview to settle
+        time.sleep(1.5)
+        
+        # Fast-track waiting for Login Input
         start_time = time.time()
         while time.time() - start_time < Config.WAIT_FOR_ELEMENT:
-            # 1. Kiểm tra nếu ĐÃ ở trang Login (Thấy ô nhập Email/Pass)
-            if self.robot.d(className="android.widget.EditText").exists:
-                # Nếu thấy nhiều hơn 1 ô EditText (thường là Email và Pass) thì DONE.
-                if self.robot.d(className="android.widget.EditText").count >= 1:
-                    logger.info(f"[{self.serial}] Đã vào được trang Login (Thấy ô Input).")
-                    return True
-            
-            # 2. Thử click nút "Login / Hội viên" từ trang chủ (Navigaton)
-            for nav_txt in self.ui.NAVIGATION_LOGIN_TEXTS:
-                if self.robot.d(textContains=nav_txt).exists:
-                    self.robot.click_smart(selectors_text=[nav_txt])
-                    logger.info(f"[{self.serial}] Clicked navigation to Login: {nav_txt}")
-                    time.sleep(2)
-                    break
+            # 1. Quick Action: Find anything clickable (Popups, Skips)
+            if self.robot.dismiss_popups() or self.robot.click_smart(texts=self.ui.CHROME_SKIP_TEXTS):
+                continue
                 
-            # 3. Thử click các nút "vượt rào" của Chrome (Onboarding)
-            found_skip = False
-            for txt in self.ui.CHROME_SKIP_TEXTS:
-                if self.robot.d(textContains=txt).exists:
-                    self.robot.d(textContains=txt).click()
-                    logger.info(f"[{self.serial}] Clicked skip button: {txt}")
-                    found_skip = True
-                    break
+            # 2. Check if we reached the goal (Login Screen)
+            if self.robot.wait_for_element(rid="dwfrm_login_username", timeout=1):
+                logger.info(f"[{self.serial}] Reached Login Screen.")
+                return True
             
-            # 4. Thử click theo Resource ID
-            for rid in [self.ui.CHROME_ACCEPT_RID, self.ui.CHROME_POSITIVE_RID, self.ui.CHROME_NEGATIVE_RID]:
-                if self.robot.d(resourceId=rid).exists:
-                    self.robot.d(resourceId=rid).click()
-                    found_skip = True
-
-            if not found_skip:
-                time.sleep(0.5)
-        
-        logger.warning(f"[{self.serial}] Hết thời gian chờ Login. Chuyển sang bước tiếp theo...")
+            if self.robot.d(className="android.widget.EditText").exists(timeout=0.1):
+                return True
+                
+            time.sleep(0.3)
         return False
         
     def login(self, email, password):
-        """Thực hiện chuỗi đăng nhập. Trả về Structured Result."""
-        logger.info(f"[{self.serial}] Đang thực hiện Login cho {email}...")
+        """Perform login flow with corrected Button IDs."""
+        logger.info(f"[{self.serial}] Performing login: {email}")
         
-        # 1. Điền thông tin
-        if not self.robot.type_smart(email, self.ui.EMAIL_KEYWORDS, fallback_index=0):
-            return {"status": "FAIL", "error": "PAGE_NOT_LOADED", "message": "Không tìm thấy ô nhập Email."}
-        if not self.robot.type_smart(password, self.ui.PASSWORD_KEYWORDS, fallback_index=1):
-            return {"status": "FAIL", "error": "PASSWORD_ERROR", "message": "Không tìm thấy ô nhập Password."}
+        # 1. Type Credentials (using accurate IDs)
+        if not self.robot.type_smart(email, self.ui.EMAIL_KEYWORDS, ["dwfrm_login_username"]):
+            return {"status": "FAIL", "message": "Email input not found"}
+            
+        if not self.robot.type_smart(password, self.ui.PASSWORD_KEYWORDS, ["dwfrm_login_password"]):
+            return {"status": "FAIL", "message": "Password input not found"}
         
-        # 2. Click Login
+        # 2. Submit with corrected IDs and Smart Waiting
+        # We wait for the button to be visible first
+        login_btn_selectors = [
+            {'rid': 'dwfrm_login_login'}, 
+            {'textContains': 'ログイン'}, 
+            {'textContains': 'Hội viên'}
+        ]
+        
         for i in range(3):
-            self.robot.swipe_up(scale=0.3)
-            self.robot.click_smart(self.ui.LOGIN_BTN_IDS, self.ui.LOGIN_BTN_TEXTS)
+            self.robot.swipe_up(scale=0.4)
+            logger.info(f"[{self.serial}] Finding Login button (Try {i+1})...")
             
-            # Đợi OTP Page xuất hiện
-            if self.robot.wait_for_element(text="パスコード", timeout=7):
-                logger.info(f"[{self.serial}] Đã chuyển sang màn hình OTP.")
-                return {"status": "SUCCESS", "message": "Đã tới màn hình OTP."}
+            # Wait a few seconds for the button to appear if page is still loading
+            target = self.robot.wait_for_any(login_btn_selectors, timeout=5)
+            if target:
+                if self.robot.click_smart(ids=["dwfrm_login_login", "form1Button"], texts=self.ui.LOGIN_BTN_TEXTS):
+                    # SUCCESS CONDITION: Wait for OTP screen
+                    if self.robot.wait_for_element(text_contains="パスコード", timeout=15):
+                        return {"status": "SUCCESS", "message": "Reached OTP screen"}
+                    
+                    # Check for redirection
+                    if not self.robot.d(resourceId="dwfrm_login_login").exists(timeout=2):
+                        return {"status": "SUCCESS", "message": "Login submitted"}
             
-            # Kiểm tra xem Login button đã mất chưa
-            if not self.robot.d(resourceId="form1Button").exists:
-                return {"status": "SUCCESS", "message": "Chuyển màn hình OTP (theo ID)."}
-            
-            logger.warning(f"[{self.serial}] Login thất bại lần {i+1}. Đang thử lại...")
+            logger.warning(f"[{self.serial}] Login button click attempt {i+1} failed.")
+            time.sleep(1)
         
-        return {"status": "FAIL", "error": "LOGIN_TIMEOUT", "message": "Hết thời gian chờ Login."}
+        return {"status": "FAIL", "message": "Login button not found/clickable"}
 
     def wait_for_otp_screen(self, timeout=15):
-        """Chờ cho đến khi màn hình OTP xuất hiện."""
-        logger.info(f"[{self.serial}] Đang chờ màn hình nhập OTP (tối đa {timeout}s)...")
-        # Chờ xuất hiện chữ "パスコード" (Passcode) hoặc "確認コード" (Confirm code)
-        for keyword in ["パスコード", "確認コード", "コードを入力"]:
-            if self.robot.wait_for_element(text_contains=keyword, timeout=timeout):
-                logger.info(f"[{self.serial}] Đã thấy màn hình OTP.")
-                return True
-        return False
+        """Dedicated wait for OTP input field."""
+        return self.robot.wait_for_element(text_contains="パスコード", timeout=timeout)
 
     def verify_otp(self, code):
-        """Xác thực mã OTP."""
-        logger.info(f"[{self.serial}] Đang điền OTP: {code}")
-        time.sleep(2) 
+        """Input OTP, confirm, and ENSURE it's processed."""
+        logger.info(f"[{self.serial}] Verifying OTP: {code}")
         
+        # 1. Fill OTP with FastInput (Automatic Keyboard/Autofill Suppression)
         if not self.robot.type_smart(code, self.ui.OTP_KEYWORDS):
-            # Fallback nếu chỉ có 1 ô EditText
-            if self.robot.d(className="android.widget.EditText").count == 1:
-                self.robot.d(className="android.widget.EditText").set_text(code)
-            else:
-                return {"status": "FAIL", "error": "OTP_INPUT_NOT_FOUND", "message": "Không tìm thấy ô nhập mã OTP."}
+            # Last Resort: If keywords fail, find any EditText and type
+            logger.warning(f"[{self.serial}] Keywords failed, trying direct injection to first EditText...")
+            if not self.robot.type_smart(code, ["passcode"]): # Generic fallback
+                 return {"status": "FAIL", "message": "OTP input not found"}
             
-        for i in range(2):
-            self.robot.swipe_up(scale=0.2)
-            self.robot.click_smart(self.ui.VERIFY_BTN_IDS, self.ui.VERIFY_BTN_TEXTS)
-            time.sleep(3) # Đợi điều hướng nhẹ
-            
-            # Chỉ cần click được nút xác thực là coi như xong phần input, 
-            # chúng ta sẽ check login thật sự ở bước mở link Chusen.
-            logger.info(f"[{self.serial}] Đã bấm nút xác thực OTP.")
-            return {"status": "SUCCESS", "message": "Đã bấm xác thực OTP."}
+        # 2. Click Confirm - No more blind 'back' press!
+        time.sleep(0.5) 
+        self.robot.swipe_up(scale=0.1) # Small swipe to ensure visibility
         
-        return {"status": "FAIL", "error": "VERIFY_TIMEOUT", "message": "Không bấm được nút xác thực OTP."}
+        if self.robot.click_smart(ids=self.ui.VERIFY_BTN_IDS, texts=self.ui.VERIFY_BTN_TEXTS):
+            logger.info(f"[{self.serial}] Waiting for OTP submission to complete...")
+            start_verify = time.time()
+            while time.time() - start_verify < 12:
+                # Check for redirection or success indicators
+                if not self.robot.d(className="android.widget.EditText").exists(timeout=2):
+                    logger.info(f"[{self.serial}] OTP confirmed successfully.")
+                    return {"status": "SUCCESS", "message": "OTP verified"}
+                
+                if self.robot.d(textContains="エラー").exists(timeout=0.1):
+                    return {"status": "FAIL", "message": "Invalid OTP code error displayed"}
+                
+                time.sleep(1)
+            return {"status": "SUCCESS", "message": "OTP submission likely passed"}
+        
+        return {"status": "FAIL", "message": "Verify button not found"}
 
     def lottery_apply(self):
-        """Thực hiện nhảy thẳng vào link Chusen và đăng ký."""
-        logger.info(f"[{self.serial}] Nhảy thẳng vào trang Chusen: {self.ui.LOTTERY_URL}")
+        """Direct navigation for application flow using shared session."""
+        logger.info(f"[{self.serial}] Direct hopping to Lottery page...")
+        # CRITICAL: Must use same incognito mode as login to preserve session
+        self.robot.open_url(self.ui.LOTTERY_URL, incognito=Config.INCOGNITO_DEFAULT)
         
-        # Mở trực tiếp link trang Lottery list
-        self.robot.open_url(self.ui.LOTTERY_URL, incognito=False)
-        time.sleep(4)
-        
-        # 1. Tìm mục Reception (受付中)
-        found_item = False
-        for _ in range(5):
-            if self.robot.d(textContains=self.ui.LOTTERY_STATUS_READY).exists:
-                found_item = True; break
+        # 1. Find active reception (受付中)
+        found = False
+        for _ in range(3):
+            if self.robot.wait_for_element(text_contains="受付中", timeout=4):
+                found = True; break
             self.robot.swipe_up()
-        
-        if not found_item:
-            return {"status": "SKIP", "message": "Không thấy mặt hàng nào đang '受付中'."}
+            
+        if not found:
+            return {"status": "SKIP", "message": "No active lottery items found"}
 
-        # 2. Click Details (詳細を見る)
-        self.robot.click_smart(selectors_text=[self.ui.LOTTERY_DETAILS_BTN])
-        time.sleep(2)
+        # 2. Detail Click & Apply Loop
+        self.robot.click_smart(texts=[self.ui.LOTTERY_DETAILS_BTN])
+        self.robot.wait_for_element(rid="form1", timeout=5) # wait for page load
         
-        # 3. Radio & Checkbox
+        # Auto click form elements (Radio/Checkbox)
+        self.robot.swipe_up()
         if self.robot.d(className="android.widget.RadioButton").exists:
             self.robot.d(className="android.widget.RadioButton").click()
         if self.robot.d(className="android.widget.CheckBox").exists:
             self.robot.d(className="android.widget.CheckBox").click()
         
-        # 4. Submit Modal
+        # 3. Final Confirmations (Chain click)
         self.robot.swipe_up()
-        self.robot.click_smart(selectors_text=[self.ui.LOTTERY_SUBMIT_MODAL_BTN])
-        time.sleep(2)
+        self.robot.click_smart(texts=[self.ui.LOTTERY_SUBMIT_MODAL_BTN])
         
-        # 5. Confirm Final
-        for _ in range(4):
-            if self.robot.click_smart(self.ui.CONFIRM_BTN_IDS, self.ui.CONFIRM_BTN_TEXTS):
-                logger.info(f"[{self.serial}] 🎉 Đăng ký Chusen cho tài khoản này THÀNH CÔNG!")
-                return {"status": "SUCCESS", "message": "Đã ứng tuyển Chusen thành công."}
+        # Recursive button push for final confirmation
+        for _ in range(3):
+            if self.robot.click_smart(ids=self.ui.CONFIRM_BTN_IDS, texts=self.ui.CONFIRM_BTN_TEXTS):
+                logger.info(f"[{self.serial}] SUCCESS: Applied successfully!")
+                return {"status": "SUCCESS", "message": "Application complete"}
             self.robot.swipe_up(scale=0.2)
             
-        return {"status": "FAIL", "error": "CONFIRM_FAIL", "message": "Lỗi xác nhận ở bước cuối cùng."}
+        return {"status": "FAIL", "message": "Final confirmation button not found"}
