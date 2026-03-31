@@ -1,68 +1,71 @@
-# 🎮 Pokemon Center Auto Chusen (Chốt đơn tự động)
+# 🧬 AI CHUSEN - MATRIX MONITORING SYSTEM
 
-Hệ thống tự động hóa đăng ký xổ số (Chusen) trên Pokemon Center Online bằng `uiautomator2` và `Streamlit`.
+**Hệ thống tự động hóa đăng ký xổ số (Chusen) Pokemon Center với giao diện Matrix Cyberpunk.**
 
-## 🚀 Cách chạy nhanh
-Thay vì gợ lệnh dài, bây giờ bạn chỉ cần chạy:
-```bash
-./run.sh
-```
-
-## ✨ Tính năng chính
-- **Tự động hóa 100%**: Từ Login -> Vượt OTP -> Chọn Item -> Chốt đơn.
-- **Quản lý đa thiết bị**: Dashboard trực quan theo dõi logs từng máy theo thời gian thực.
-- **Thông minh & An toàn**: Bỏ qua màn hình chào mừng, giữ session đăng nhập, tránh Anti-bot.
-- **Bộ lọc OTP mạnh mẽ**: Tự động quét và bắt mã từ Gmail master, match chính xác từng tài khoản.
-
----
-*Tác phẩm được tối ưu bởi Antigravity AI.*
-
-### 1. Chuẩn bị (Prerequisites)
-- **Điện thoại:** Android thật. Cần bật **Tùy chọn nhà phát triển** -> **Gỡ lỗi USB (USB Debugging)**.
-- **Máy tính:** Cài đặt ADB (Android Bridge).
-- **Python:** Phiên bản 3.9 trở lên.
-
-### 2. Cài đặt (Installation)
-Chạy lệnh sau tại thư mục dự án để cài đặt các thư viện cần thiết:
-```bash
-pip install uiautomator2 streamlit python-dotenv pandas
-```
-
-### 3. Cấu hình (Configuration)
-
-#### Bước 3.1: File `.env` (Thông tin Mail chính)
-Mở file `.env` và điền thông tin Mail nhận thư chuyển tiếp (Forwarding):
-- `MASTER_EMAIL`: Địa chỉ Gmail chính.
-- `MASTER_PASSWORD`: Mật khẩu ứng dụng (App Password) 16 ký tự.
-
-#### Bước 3.2: File `accounts_template.csv` (Danh sách tài khoản)
-- `Account_Email`: Email (Username) dùng để đăng nhập.
-- `Password`: Mật khẩu tài khoản.
-- `Device_Serial`: (Tùy chọn) Mã sê-ri điện thoại (xem trên Dashboard).
+Hệ thống được thiết kế theo kiến trúc **Hybrid (Electron + Python)**, kết hợp sức mạnh xử lý của Python `uiautomator2` và giao diện Dashboard hiện đại của Electron/Streamlit.
 
 ---
 
-### 4. Cách vận hành (Operation)
+## ✨ Tính năng nổi bật
 
-**Cách 1: Sử dụng Giao diện Dashboard (Khuyên dùng)**
-Chạy lệnh sau để mở Dashboard trên trình duyệt:
+- **Tự động hóa 100%**: Xử lý từ Đăng nhập -> Vượt OTP -> Chọn Vật phẩm -> Hoàn tất đơn hàng.
+- **Matrix Dashboard**: Theo dõi log thời gian thực của từng thiết bị đồng thời trên một màn hình duy nhất.
+- **Quản lý thiết bị thông minh**: Hỗ trợ quét Node (Phone), Xem màn hình (VIEW), và Reset IP (Airplane Mode) tự động.
+- **Cấu hình mạnh mẽ**: Tự động lấy mã OTP từ Mail Master, khớp chính xác từng tài khoản đang chạy.
+- **An toàn & Riêng tư**: Chạy Chrome ở chế độ ẩn danh (Incognito) cho mỗi tài khoản, dọn dẹp cache sau mỗi lần chạy.
+
+---
+
+## 🚀 Cách vận hành (Cho người sử dụng)
+
+1. **Cài đặt**: 
+   - Truy cập thư mục `desktop/dist/`.
+   - Mở file `AI CHUSEN-1.0.0-arm64.dmg` và cài đặt ứng dụng vào thư mục **Applications**.
+2. **Khởi chạy**: 
+   - Mở ứng dụng **AI CHUSEN** từ Launchpad (Lần đầu mở hãy Chuột phải -> Open).
+   - Đảm bảo điện thoại Android đã bật gỡ lỗi USB và kết nối với máy tính.
+3. **Thao tác**: 
+   - Nhấn **🔭 SCAN FOR NEW NODES** để nhận diện điện thoại.
+   - Nhấn **▶ RUN** trên thiết bị mong muốn để bắt đầu quy trình tự động.
+
+---
+
+## 🛠 Hướng dẫn cho Lập trình viên (Development)
+
+### 1. Cấu trúc thư mục
+- `desktop/`: Chứa mã nguồn Electron (Frontend).
+- `desktop/backend/`: Chứa mã nguồn Python, Streamlit UI và môi trường ảo `py_env`.
+- `desktop/assets/`: Chứa icon và hình ảnh ứng dụng.
+
+### 2. Chế độ Phát triển (Dev Mode)
+Để chạy thử nghiệm và sửa lỗi nhanh:
 ```bash
-streamlit run app_ui.py
+cd desktop
+npm install
+npm start
 ```
-- Bấm **"Quét thiết bị"** để robot nhận diện các phone đang cắm.
-- Bấm **"Bắt đầu Chusen tự động"** để chạy.
 
-**Cách 2: Chạy trực tiếp qua Terminal**
+### 3. Đóng gói ứng dụng (Build)
+Để tạo ra file cài đặt `.dmg` mới:
 ```bash
-python3 main.py
+cd desktop
+npm run dist
 ```
 
 ---
 
-### 5. Lưu ý khi chạy lần đầu
-1. **ATX Agent:** Khi chạy lần đầu, trên điện thoại có thể hiện thông báo cài đặt một ứng dụng nhỏ (ATX hoặc AdbKeyboard), bạn hãy bấm cho phép/đồng ý trên điện thoại.
-2. **Tab ẩn danh:** Robot sẽ tự động mở Chrome ở chế độ ẩn danh (Incognito) để không lưu lại lịch sử sau khi xong mỗi tài khoản.
-3. **Đổi IP (Airplane Mode):** Cứ sau 10 tài khoản, hệ thống sẽ tự động bật/tắt chế độ máy bay để đổi IP mạng 4G.
+## ⚙️ Cấu hình hệ thống
+
+Dữ liệu được quản lý trong thư mục `desktop/backend/`:
+- **`.env`**: Điền thông tin `MASTER_EMAIL` và `MASTER_PASSWORD` để nhận mã OTP.
+- **`accounts_template.csv`**: Danh sách tài khoản cần Chusen.
 
 ---
-**Chúc bạn vận hành thành công!** Nếu gặp lỗi về tọa độ hoặc không lấy được OTP, hãy gửi log cho tôi để điều chỉnh.
+
+## ⚠️ Lưu ý kỹ thuật
+
+- **ADB (Android Debug Bridge)**: Đảm bảo máy tính đã cài đặt ADB. Ứng dụng sẽ tự động tìm kiếm ADB tại các đường dẫn mặc định trên macOS.
+- **Quyền bảo mật**: Do ứng dụng chưa được ký chứng chỉ Apple chính thức, hãy luôn dùng **Chuột phải (Right-click) -> Open** khi mở app lần đầu tiên.
+
+---
+*Phát triển và tối ưu bởi Matrix Dev Group & Antigravity AI.*

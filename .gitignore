@@ -1,7 +1,14 @@
 .venv/
+py_env/
 .env
 __pycache__/
 *.pyc
 .agent/
 .DS_Store
 accounts_template.csv
+node_modules/
+dist/
+backend/src/
+backend/py_env/
+backend/accounts_template.csv
+backend/.env

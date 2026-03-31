@@ -1,11 +1,22 @@
+import os
 import streamlit as st
 import pandas as pd
 import time
 import subprocess
 import threading
-import os
 import random
 import streamlit.components.v1 as components
+
+# --- FIX PATHS FOR MAC PRODUCTION ---
+EXT_PATHS = [
+    "/Users/toandz/Library/Android/sdk/platform-tools",
+    "/usr/local/bin",
+    "/opt/homebrew/bin"
+]
+for p in EXT_PATHS:
+    if p not in os.environ["PATH"]:
+        os.environ["PATH"] = f"{p}:{os.environ['PATH']}"
+
 from src.core.robot import AdbRobot
 from src.workflow.lottery_workflow import run_lottery_workflow
 from src.utils.config import Config

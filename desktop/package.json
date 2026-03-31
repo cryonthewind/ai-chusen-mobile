@@ -1,0 +1,37 @@
+{
+  "name": "ai-chusen-matrix",
+  "version": "1.0.0",
+  "description": "AI CHUSEN - MATRIX MONITORING SYSTEM",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "author": "Matrix Dev",
+  "license": "ISC",
+  "dependencies": {
+    "wait-on": "^9.0.4"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3",
+    "electron-is-dev": "^3.0.1"
+  },
+  "build": {
+    "appId": "com.matrix.aichusen",
+    "productName": "AI CHUSEN",
+    "asar": true,
+    "files": [
+      "**/*"
+    ],
+    "mac": {
+      "icon": "assets/icon.png",
+      "category": "public.app-category.productivity",
+      "identity": null
+    },
+    "extraResources": [
+      "backend"
+    ]
+  }
+}
